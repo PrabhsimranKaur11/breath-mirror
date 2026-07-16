@@ -442,30 +442,36 @@ async function startCamera() {
 
 // ── Mic ───────────────────────────────────────────────────────────────
 async function startMic(ac) {
+  let ms;
   try {
-    const ms = await navigator.mediaDevices.getUserMedia({ 
+    ms = await navigator.mediaDevices.getUserMedia({ 
       audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false } 
     });
+  } catch(e) {
+    try {
+      ms = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch(err) {
+      statusEl.textContent = 'mic access denied';
+      return;
+    }
+  }
+  
+  try {
     const src = ac.createMediaStreamSource(ms);
-    const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 800;
+    const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 150;
     src.connect(hp);
     const an = ac.createAnalyser(); an.fftSize = 512; hp.connect(an);
     
-    const hasFloat = !!an.getFloatTimeDomainData;
-    const buf = hasFloat ? new Float32Array(an.frequencyBinCount) : new Uint8Array(an.frequencyBinCount);
+    const buf = new Uint8Array(an.frequencyBinCount);
     let rTO = null;
     
     (function tick() {
       requestAnimationFrame(tick);
-      if (hasFloat) {
-        an.getFloatTimeDomainData(buf);
-      } else {
-        an.getByteTimeDomainData(buf);
-      }
+      an.getByteTimeDomainData(buf);
       
       let s = 0; 
       for (let i = 0; i < buf.length; i++) {
-        let v = hasFloat ? buf[i] : (buf[i] - 128) / 128;
+        let v = (buf[i] - 128) / 128;
         s += v * v;
       }
       const rms = Math.sqrt(s/buf.length);
@@ -476,7 +482,9 @@ async function startMic(ac) {
         clearTimeout(rTO); rTO = setTimeout(() => breathRing.classList.remove('active'), 300);
       }
     })();
-  } catch(e) {}
+  } catch(e) {
+    statusEl.textContent = 'mic init error';
+  }
 }
 
 // ── Buttons ───────────────────────────────────────────────────────────
@@ -493,7 +501,7 @@ document.getElementById('captureBtn').addEventListener('click', () => {
 document.getElementById('startBtn').addEventListener('click', async () => {
   document.getElementById('startOverlay').style.display = 'none';
   const ac = new (window.AudioContext || window.webkitAudioContext)();
-  if (ac.state === 'suspended') ac.resume();
+  if (ac.state === 'suspended') await ac.resume();
   await startCamera(); 
   await startMic(ac);
 });
